@@ -38,6 +38,55 @@ PRD_FILE="$SCRIPT_DIR/prd.json"
 PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
 ARCHIVE_DIR="$SCRIPT_DIR/archive"
 LAST_BRANCH_FILE="$SCRIPT_DIR/.last-branch"
+BACKUP_DIR="/tmp/ralph-backup-$$"
+
+# Function to restore Ralph files if they were deleted
+restore_ralph_files() {
+  local files_restored=0
+
+  # Check each critical file
+  for file in "CLAUDE.md" "prompt.md" "ralph.sh" "prd.json" "progress.txt"; do
+    if [ ! -f "$SCRIPT_DIR/$file" ] && [ -f "$BACKUP_DIR/$file" ]; then
+      echo "  Restoring $file from backup..."
+      cp "$BACKUP_DIR/$file" "$SCRIPT_DIR/$file"
+      files_restored=1
+    fi
+  done
+
+  # If backup didn't have the file, try git
+  for file in "CLAUDE.md" "prompt.md" "ralph.sh"; do
+    if [ ! -f "$SCRIPT_DIR/$file" ]; then
+      echo "  Attempting to restore $file from git..."
+      (cd "$SCRIPT_DIR" && git checkout HEAD -- "$file" 2>/dev/null) || true
+      if [ -f "$SCRIPT_DIR/$file" ]; then
+        files_restored=1
+      fi
+    fi
+  done
+
+  if [ $files_restored -eq 1 ]; then
+    echo "  Ralph files restored successfully."
+  fi
+}
+
+# Backup Ralph files before starting (protection against project init commands)
+backup_ralph_files() {
+  mkdir -p "$BACKUP_DIR"
+  for file in "CLAUDE.md" "prompt.md" "ralph.sh" "prd.json" "progress.txt"; do
+    if [ -f "$SCRIPT_DIR/$file" ]; then
+      cp "$SCRIPT_DIR/$file" "$BACKUP_DIR/$file"
+    fi
+  done
+  echo "Ralph files backed up to $BACKUP_DIR"
+}
+
+# Clean up backup on exit
+cleanup_backup() {
+  if [ -d "$BACKUP_DIR" ]; then
+    rm -rf "$BACKUP_DIR"
+  fi
+}
+trap cleanup_backup EXIT
 
 # Archive previous run if branch changed
 if [ -f "$PRD_FILE" ] && [ -f "$LAST_BRANCH_FILE" ]; then
@@ -81,11 +130,35 @@ fi
 
 echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS"
 
+# Backup Ralph files before starting iterations
+backup_ralph_files
+
 for i in $(seq 1 $MAX_ITERATIONS); do
   echo ""
   echo "==============================================================="
   echo "  Ralph Iteration $i of $MAX_ITERATIONS ($TOOL)"
   echo "==============================================================="
+
+  # Restore Ralph files if they were deleted by previous iteration
+  # (e.g., by hexo init, create-react-app, or similar project scaffolding)
+  if [ ! -d "$SCRIPT_DIR" ]; then
+    echo "  WARNING: Ralph directory was deleted! Recreating..."
+    mkdir -p "$SCRIPT_DIR"
+  fi
+  restore_ralph_files
+
+  # Verify the required prompt file exists for the selected tool
+  if [[ "$TOOL" == "amp" ]]; then
+    if [ ! -f "$SCRIPT_DIR/prompt.md" ]; then
+      echo "  ERROR: Cannot restore prompt.md required for amp. Aborting."
+      exit 1
+    fi
+  else
+    if [ ! -f "$SCRIPT_DIR/CLAUDE.md" ]; then
+      echo "  ERROR: Cannot restore CLAUDE.md required for $TOOL. Aborting."
+      exit 1
+    fi
+  fi
 
   # Run the selected tool with the ralph prompt
   if [[ "$TOOL" == "amp" ]]; then
@@ -104,7 +177,14 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     echo "Completed at iteration $i of $MAX_ITERATIONS"
     exit 0
   fi
-  
+
+  # Sync updated prd.json and progress.txt to backup for next iteration
+  for file in "prd.json" "progress.txt"; do
+    if [ -f "$SCRIPT_DIR/$file" ]; then
+      cp "$SCRIPT_DIR/$file" "$BACKUP_DIR/$file"
+    fi
+  done
+
   echo "Iteration $i complete. Continuing..."
   sleep 2
 done
