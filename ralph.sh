@@ -56,9 +56,9 @@ restore_ralph_files() {
   # If backup didn't have the file, try git
   for file in "CLAUDE.md" "prompt.md" "ralph.sh"; do
     if [ ! -f "$SCRIPT_DIR/$file" ]; then
-      echo "  Attempting to restore $file from git..."
       (cd "$SCRIPT_DIR" && git checkout HEAD -- "$file" 2>/dev/null) || true
       if [ -f "$SCRIPT_DIR/$file" ]; then
+        echo "  Restored $file from git"
         files_restored=1
       fi
     fi
