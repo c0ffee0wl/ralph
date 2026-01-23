@@ -1,12 +1,13 @@
 #!/bin/bash
 # Ralph Wiggum - Long-running AI agent loop
-# Usage: ./ralph.sh [--tool amp|claude|claudo] [max_iterations]
+# Usage: ./ralph.sh [--tool amp|claude|claudo] [--timeout seconds] [max_iterations]
 
 set -e
 
 # Parse arguments
 TOOL="claudo"  # Default to claudo
 MAX_ITERATIONS=10
+TIMEOUT=1200  # Default 20 minutes per iteration
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -16,6 +17,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --tool=*)
       TOOL="${1#*=}"
+      shift
+      ;;
+    --timeout)
+      TIMEOUT="$2"
+      shift 2
+      ;;
+    --timeout=*)
+      TIMEOUT="${1#*=}"
       shift
       ;;
     *)
@@ -80,13 +89,28 @@ backup_ralph_files() {
   echo "Ralph files backed up to $BACKUP_DIR"
 }
 
-# Clean up backup on exit
-cleanup_backup() {
+# Clean up on exit
+cleanup() {
+  # For claudo/podman, stop any running containers
+  if [[ "$TOOL" == "claudo" ]]; then
+    podman stop -t 2 $(podman ps -q) 2>/dev/null || true
+  fi
+  # Remove backup directory
   if [ -d "$BACKUP_DIR" ]; then
     rm -rf "$BACKUP_DIR"
   fi
 }
-trap cleanup_backup EXIT
+
+# Handle Ctrl+C and termination signals
+handle_signal() {
+  echo ""
+  echo "Interrupted! Cleaning up..."
+  cleanup
+  exit 130
+}
+
+trap handle_signal SIGINT SIGTERM
+trap cleanup EXIT
 
 # Archive previous run if branch changed
 if [ -f "$PRD_FILE" ] && [ -f "$LAST_BRANCH_FILE" ]; then
@@ -128,7 +152,7 @@ if [ ! -f "$PROGRESS_FILE" ]; then
   echo "---" >> "$PROGRESS_FILE"
 fi
 
-echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS"
+echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS - Timeout: ${TIMEOUT}s"
 
 # Backup Ralph files before starting iterations
 backup_ralph_files
@@ -160,14 +184,30 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     fi
   fi
 
-  # Run the selected tool with the ralph prompt
+  # Run the selected tool with the ralph prompt (with timeout)
+  # Use pipefail to capture timeout's exit code through the pipeline
+  set +e  # Temporarily disable exit-on-error
   if [[ "$TOOL" == "amp" ]]; then
-    OUTPUT=$(cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(set -o pipefail; timeout --signal=TERM --kill-after=30 "$TIMEOUT" bash -c "cat '$SCRIPT_DIR/prompt.md' | amp --dangerously-allow-all" 2>&1 | tee /dev/stderr)
+    TIMED_OUT=$?
   elif [[ "$TOOL" == "claudo" ]]; then
-    OUTPUT=$(claudo --git --host -- --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(set -o pipefail; timeout --signal=TERM --kill-after=30 "$TIMEOUT" claudo --git --host -- --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr)
+    TIMED_OUT=$?
   else
     # Claude Code: use --dangerously-skip-permissions for autonomous operation, --print for output
-    OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(set -o pipefail; timeout --signal=TERM --kill-after=30 "$TIMEOUT" claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr)
+    TIMED_OUT=$?
+  fi
+  set -e  # Re-enable exit-on-error
+
+  # Check if iteration timed out (exit code 124 = timeout, 137 = killed)
+  if [[ $TIMED_OUT -eq 124 ]] || [[ $TIMED_OUT -eq 137 ]]; then
+    echo ""
+    echo "  WARNING: Iteration $i timed out after ${TIMEOUT}s. Continuing to next iteration..."
+    # For claudo, ensure container is stopped
+    if [[ "$TOOL" == "claudo" ]]; then
+      podman stop -t 2 $(podman ps -q) 2>/dev/null || true
+    fi
   fi
   
   # Check for completion signal
