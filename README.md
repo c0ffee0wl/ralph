@@ -11,7 +11,8 @@ Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 ## Prerequisites
 
 - One of the following AI coding tools installed and authenticated:
-  - [Claudo](https://github.com/snarktank/claudo) (default) - Claude Code in a container
+  - [Blaude](https://github.com/c0ffee0wl/blaude) (default) - Claude Code in a bubblewrap sandbox
+  - [Claudo](https://github.com/c0ffee0wl/claudo) - Claude Code in a container
   - [Amp CLI](https://ampcode.com)
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`)
 - `jq` installed (`brew install jq` on macOS)
@@ -89,8 +90,11 @@ This creates `prd.json` with user stories structured for autonomous execution.
 ### 3. Run Ralph
 
 ```bash
-# Using Claudo (default)
+# Using Blaude (default)
 ./scripts/ralph/ralph.sh [max_iterations]
+
+# Using Claudo
+./scripts/ralph/ralph.sh --tool claudo [max_iterations]
 
 # Using Amp
 ./scripts/ralph/ralph.sh --tool amp [max_iterations]
@@ -99,7 +103,7 @@ This creates `prd.json` with user stories structured for autonomous execution.
 ./scripts/ralph/ralph.sh --tool claude [max_iterations]
 ```
 
-Default is 10 iterations. Use `--tool claudo`, `--tool amp`, or `--tool claude` to select your AI coding tool.
+Default is 10 iterations. Use `--tool blaude`, `--tool claudo`, `--tool amp`, or `--tool claude` to select your AI coding tool.
 
 Ralph will:
 1. Create a feature branch (from PRD `branchName`)
@@ -115,7 +119,7 @@ Ralph will:
 
 | File | Purpose |
 |------|---------|
-| `ralph.sh` | The bash loop that spawns fresh AI instances (supports `--tool claudo`, `--tool amp`, or `--tool claude`) |
+| `ralph.sh` | The bash loop that spawns fresh AI instances (supports `--tool blaude`, `--tool claudo`, `--tool amp`, or `--tool claude`) |
 | `prompt.md` | Prompt template for Amp |
 | `CLAUDE.md` | Prompt template for Claude Code |
 | `prd.json` | User stories with `passes` status (the task list) |

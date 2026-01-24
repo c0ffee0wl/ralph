@@ -1,11 +1,11 @@
 #!/bin/bash
 # Ralph Wiggum - Long-running AI agent loop
-# Usage: ./ralph.sh [--tool amp|claude|claudo] [--timeout seconds] [max_iterations]
+# Usage: ./ralph.sh [--tool amp|claude|claudo|blaude] [--timeout seconds] [max_iterations]
 
 set -e
 
 # Parse arguments
-TOOL="claudo"  # Default to claudo
+TOOL="blaude"  # Default to blaude
 MAX_ITERATIONS=10
 TIMEOUT=1200  # Default 20 minutes per iteration
 
@@ -38,8 +38,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate tool choice
-if [[ "$TOOL" != "amp" && "$TOOL" != "claude" && "$TOOL" != "claudo" ]]; then
-  echo "Error: Invalid tool '$TOOL'. Must be 'amp', 'claude', or 'claudo'."
+if [[ "$TOOL" != "amp" && "$TOOL" != "claude" && "$TOOL" != "claudo" && "$TOOL" != "blaude" ]]; then
+  echo "Error: Invalid tool '$TOOL'. Must be 'amp', 'claude', 'claudo', or 'blaude'."
   exit 1
 fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -91,8 +91,8 @@ backup_ralph_files() {
 
 # Clean up on exit
 cleanup() {
-  # For claudo/podman, stop any running containers
-  if [[ "$TOOL" == "claudo" ]]; then
+  # For claudo/blaude/podman, stop any running containers
+  if [[ "$TOOL" == "claudo" || "$TOOL" == "blaude" ]]; then
     podman stop -t 2 $(podman ps -q) 2>/dev/null || true
   fi
   # Remove backup directory
@@ -193,6 +193,9 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   elif [[ "$TOOL" == "claudo" ]]; then
     OUTPUT=$(set -o pipefail; timeout --signal=TERM --kill-after=30 "$TIMEOUT" claudo --git --host -- --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr)
     TIMED_OUT=$?
+  elif [[ "$TOOL" == "blaude" ]]; then
+    OUTPUT=$(set -o pipefail; timeout --signal=TERM --kill-after=30 "$TIMEOUT" blaude --git --host -- --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr)
+    TIMED_OUT=$?
   else
     # Claude Code: use --dangerously-skip-permissions for autonomous operation, --print for output
     OUTPUT=$(set -o pipefail; timeout --signal=TERM --kill-after=30 "$TIMEOUT" claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr)
@@ -204,8 +207,8 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   if [[ $TIMED_OUT -eq 124 ]] || [[ $TIMED_OUT -eq 137 ]]; then
     echo ""
     echo "  WARNING: Iteration $i timed out after ${TIMEOUT}s. Continuing to next iteration..."
-    # For claudo, ensure container is stopped
-    if [[ "$TOOL" == "claudo" ]]; then
+    # For claudo/blaude, ensure container is stopped
+    if [[ "$TOOL" == "claudo" || "$TOOL" == "blaude" ]]; then
       podman stop -t 2 $(podman ps -q) 2>/dev/null || true
     fi
   fi
